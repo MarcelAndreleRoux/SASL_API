@@ -1,20 +1,22 @@
+import gradio as gr
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
 import tensorflow as tf
-import os
+import threading
 
-app = Flask(__name__)
-CORS(app)  # Allow requests from Next.js
+# Create Flask app
+flask_app = Flask(__name__)
+CORS(flask_app)
 
-# Load your model
+# Load model
 print("Loading model...")
 model = tf.keras.models.load_model("model_1.keras")
 actions = ['hello', 'how', 'you', 'good']
 threshold = 0.5
 print(f"✅ Model loaded! Actions: {actions}")
 
-@app.route('/predict', methods=['POST'])
+@flask_app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.json
@@ -23,10 +25,7 @@ def predict():
         if len(sequence) != 30:
             return jsonify({'error': f'Expected 30 frames, got {len(sequence)}'}), 400
         
-        # Convert to numpy array and make prediction
         sequence_array = np.array(sequence)
-        
-        # Make prediction
         res = model.predict(np.expand_dims(sequence_array, axis=0), verbose=0)[0]
         predicted_class = np.argmax(res)
         confidence = float(res[predicted_class])
@@ -43,10 +42,9 @@ def predict():
         })
         
     except Exception as e:
-        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/health', methods=['GET'])
+@flask_app.route('/health', methods=['GET'])
 def health():
     return jsonify({
         'status': 'healthy', 
@@ -54,7 +52,32 @@ def health():
         'actions': actions
     })
 
-if __name__ == '__main__':
-    # Get port from environment variable (Render requirement)
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+# Gradio interface (required for Hugging Face Spaces)
+def gradio_predict(sequence_text):
+    """Simple Gradio interface for testing"""
+    try:
+        # This is just for testing in the Gradio UI
+        return f"API is running! Use /predict endpoint for actual predictions.\nModel actions: {actions}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# Create Gradio interface
+iface = gr.Interface(
+    fn=gradio_predict,
+    inputs=gr.Textbox(label="Test Input", placeholder="API is ready"),
+    outputs=gr.Textbox(label="Status"),
+    title="Sign Language API",
+    description="Your sign language prediction API is running. Use the /predict endpoint for actual predictions."
+)
+
+# Run Flask in background thread
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=7860, debug=False)
+
+if __name__ == "__main__":
+    # Start Flask in background
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Launch Gradio interface
+    iface.launch(server_port=7860, share=True)
